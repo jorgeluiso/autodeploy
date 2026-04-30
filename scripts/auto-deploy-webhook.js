@@ -37,6 +37,7 @@ if (!SECRET || !BASE_DIR) {
   process.exit(1);
 }
 
+const startedAt = new Date();
 const activeDeploys = new Set();
 
 function log(msg) {
@@ -61,6 +62,24 @@ function verifySignature(rawBody, header) {
     expected.length === received.length &&
     crypto.timingSafeEqual(expected, received)
   );
+}
+
+function writeJson(res, statusCode, body) {
+  res.writeHead(statusCode, {
+    "content-type": "application/json",
+    "cache-control": "no-store",
+  });
+  res.end(`${JSON.stringify(body, null, 2)}\n`);
+}
+
+function healthPayload() {
+  return {
+    status: "ok",
+    time: new Date().toISOString(),
+    startedAt: startedAt.toISOString(),
+    uptimeSeconds: Math.floor(process.uptime()),
+    activeDeploys: activeDeploys.size,
+  };
 }
 
 function runDeploy(repoName) {
@@ -156,7 +175,12 @@ function runDeploy(repoName) {
 const server = http.createServer((req, res) => {
   log(`${req.method} ${req.url} (Host: ${req.headers.host})`);
 
-  if (req.method === "GET" && (req.url === "/health" || req.url === "/")) {
+  if (req.method === "GET" && req.url === "/health") {
+    writeJson(res, 200, healthPayload());
+    return;
+  }
+
+  if (req.method === "GET" && req.url === "/") {
     res.writeHead(200, { "content-type": "text/plain" });
     res.end("ok");
     return;

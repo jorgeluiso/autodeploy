@@ -89,6 +89,7 @@ For example, `repository` can define `/base-dir/repository/scripts/deploy.sh` wi
 Lock it down:
 
 ```bash
+install -m 600 .env /etc/auto-deploy.env
 chmod 600 /etc/auto-deploy.env
 mkdir -p /base-dir/autodeploy/data/logs
 touch /base-dir/autodeploy/data/logs/deploy.log
