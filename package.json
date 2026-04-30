@@ -1,0 +1,11 @@
+{
+  "name": "autodeploy",
+  "version": "1.0.0",
+  "description": "Generic GitHub webhook listener for auto-deploying Docker Compose projects",
+  "main": "scripts/auto-deploy-webhook.js",
+  "scripts": {
+    "start": "node scripts/auto-deploy-webhook.js"
+  },
+  "author": "Jorge Luis",
+  "license": "MIT"
+}

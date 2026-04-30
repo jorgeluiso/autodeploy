@@ -1,0 +1,17 @@
+[Unit]
+Description=Auto-deploy GitHub webhook
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/autodeploy
+EnvironmentFile=/etc/auto-deploy.env
+ExecStart=/usr/bin/node /root/autodeploy/scripts/auto-deploy-webhook.js
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
