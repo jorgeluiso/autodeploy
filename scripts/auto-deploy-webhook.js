@@ -29,6 +29,7 @@ const BRANCH = process.env.BRANCH || "main";
 const SECRET = process.env.GITHUB_WEBHOOK_SECRET;
 const LOG_FILE =
   process.env.LOG_FILE || path.join(__dirname, "..", "data", "logs", "deploy.log");
+const LOG_TIME_ZONE = process.env.LOG_TIME_ZONE || "America/Los_Angeles";
 const COMPOSE_FILE = "docker-compose.yml";
 const DEPLOY_SCRIPT = process.env.DEPLOY_SCRIPT || "scripts/deploy.sh";
 
@@ -44,8 +45,26 @@ if (!SECRET) {
 const startedAt = new Date();
 const activeDeploys = new Set();
 
+function logTimestamp(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: LOG_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    fractionalSecondDigits: 3,
+    hour12: false,
+    timeZoneName: "short",
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+
+  return `${values.year}-${values.month}-${values.day}T${values.hour}:${values.minute}:${values.second}.${values.fractionalSecond} ${values.timeZoneName}`;
+}
+
 function log(msg) {
-  const line = `[${new Date().toISOString()}] ${msg}\n`;
+  const line = `[${logTimestamp()}] ${msg}\n`;
   process.stdout.write(line);
   try {
     fs.mkdirSync(path.dirname(LOG_FILE), { recursive: true });
