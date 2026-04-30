@@ -5,9 +5,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/root/autodeploy
-EnvironmentFile=/etc/auto-deploy.env
-ExecStart=/usr/bin/node /root/autodeploy/scripts/auto-deploy-webhook.js
+EnvironmentFile=__ENV_FILE__
+WorkingDirectory=__APP_DIR__
+ExecStart=__NODE_BIN__ __APP_DIR__/scripts/auto-deploy-webhook.js
 Restart=always
 RestartSec=5
 StandardOutput=journal

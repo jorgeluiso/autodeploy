@@ -16,7 +16,7 @@ docker compose build --pull
 docker compose up -d --force-recreate --remove-orphans
 ```
 
-The server lives at `scripts/auto-deploy-webhook.js` and is supervised by systemd (`scripts/auto-deploy.service`). It runs **on the host**, not inside a container.
+The server lives at `scripts/auto-deploy-webhook.js` and is supervised by systemd. `scripts/install.sh` handles first-time service registration, and `scripts/deploy.sh` renders the systemd unit from `scripts/auto-deploy.service` during updates, so checked-in files do not need deployment-specific paths.
 
 Reserved port: **`3091`**.
 
@@ -68,12 +68,16 @@ This listener is **generic**. It can auto-deploy any repository as long as it li
 ```
 GITHUB_WEBHOOK_SECRET=<paste the value from step 3>
 BASE_DIR=/base-dir
+APP_DIR=/base-dir/autodeploy
+NODE_BIN=/usr/bin/node
 BRANCH=main
 PORT=3091
 # Optional; defaults to /base-dir/autodeploy/data/logs/deploy.log when installed at /base-dir/autodeploy.
 LOG_FILE=/base-dir/autodeploy/data/logs/deploy.log
 # Optional; defaults to scripts/deploy.sh, relative to each target repo.
 DEPLOY_SCRIPT=scripts/deploy.sh
+SERVICE_NAME=auto-deploy
+ENV_FILE=/etc/auto-deploy.env
 # Documentation/setup values used for your webhook and tunnel.
 PUBLIC_DEPLOY_URL=https://deploy.example.com
 SSH_HOST=127.0.0.1
@@ -94,11 +98,11 @@ chmod 640 /base-dir/autodeploy/data/logs/deploy.log
 ### 5. Install and start the systemd service
 
 ```bash
-cp /base-dir/autodeploy/scripts/auto-deploy.service /etc/systemd/system/
-systemctl daemon-reload
-systemctl enable --now auto-deploy
+bash /base-dir/autodeploy/scripts/install.sh
 systemctl status auto-deploy
 ```
+
+After the first install, `scripts/deploy.sh` is the canonical update script for this repo. The webhook can run it just like any other repo-provided deploy script.
 
 Tail logs with:
 

@@ -24,7 +24,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const PORT = Number(process.env.PORT || 3091);
-const BASE_DIR = process.env.BASE_DIR || "/root";
+const BASE_DIR = process.env.BASE_DIR;
 const BRANCH = process.env.BRANCH || "main";
 const SECRET = process.env.GITHUB_WEBHOOK_SECRET;
 const LOG_FILE =
@@ -32,8 +32,8 @@ const LOG_FILE =
 const COMPOSE_FILE = "docker-compose.yml";
 const DEPLOY_SCRIPT = process.env.DEPLOY_SCRIPT || "scripts/deploy.sh";
 
-if (!SECRET) {
-  console.error("GITHUB_WEBHOOK_SECRET is required");
+if (!SECRET || !BASE_DIR) {
+  console.error("GITHUB_WEBHOOK_SECRET and BASE_DIR are required");
   process.exit(1);
 }
 
