@@ -32,8 +32,12 @@ const LOG_FILE =
 const COMPOSE_FILE = "docker-compose.yml";
 const DEPLOY_SCRIPT = process.env.DEPLOY_SCRIPT || "scripts/deploy.sh";
 
-if (!SECRET || !BASE_DIR) {
-  console.error("GITHUB_WEBHOOK_SECRET and BASE_DIR are required");
+if (!BASE_DIR) {
+  console.error("BASE_DIR is required");
+  process.exit(1);
+}
+if (!SECRET) {
+  console.error("GITHUB_WEBHOOK_SECRET is required");
   process.exit(1);
 }
 

@@ -72,6 +72,8 @@ APP_DIR=/base-dir/autodeploy
 NODE_BIN=/usr/bin/node
 BRANCH=main
 PORT=3091
+# Used by child git/deploy commands; set this to the service user's home directory.
+HOME=/path/to/service-user-home
 # Optional; defaults to /base-dir/autodeploy/data/logs/deploy.log when installed at /base-dir/autodeploy.
 LOG_FILE=/base-dir/autodeploy/data/logs/deploy.log
 # Optional; defaults to scripts/deploy.sh, relative to each target repo.
