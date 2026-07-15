@@ -4,7 +4,8 @@
   "description": "Generic GitHub webhook listener for auto-deploying Docker Compose projects",
   "main": "scripts/auto-deploy-webhook.js",
   "scripts": {
-    "start": "node scripts/auto-deploy-webhook.js"
+    "start": "node scripts/auto-deploy-webhook.js",
+    "test": "node --test scripts/*.test.js"
   },
   "author": "Jorge Luis",
   "license": "MIT"

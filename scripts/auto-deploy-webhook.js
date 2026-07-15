@@ -2,9 +2,10 @@
 /*
  * Generic GitHub deploy webhook listener.
  *
- * Runs on the Docker host. On a valid `push` event to `refs/heads/${BRANCH}`, runs:
+ * Runs on the Docker host. On a valid `push` event to the repository's configured branch, runs:
  *
- *     git -C $BASE_DIR/$REPO_NAME pull --ff-only origin $BRANCH
+ *     git -C $BASE_DIR/$REPO_NAME fetch origin $DEPLOY_BRANCH
+ *     git -C $BASE_DIR/$REPO_NAME checkout -B $DEPLOY_BRANCH FETCH_HEAD
  *     ./scripts/deploy.sh     # when present in the target repo
  *
  * If no deploy script exists, it falls back to:
@@ -22,10 +23,12 @@ const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { assertValidBranch, parseRepositoryBranches } = require("./repository-branches");
 
 const PORT = Number(process.env.PORT || 3091);
 const BASE_DIR = process.env.BASE_DIR;
 const BRANCH = process.env.BRANCH || "main";
+const REPOSITORY_BRANCHES = parseRepositoryBranches(process.env.REPOSITORY_BRANCHES);
 const SECRET = process.env.GITHUB_WEBHOOK_SECRET;
 const LOG_FILE =
   process.env.LOG_FILE || path.join(__dirname, "..", "data", "logs", "deploy.log");
@@ -41,6 +44,7 @@ if (!SECRET) {
   console.error("GITHUB_WEBHOOK_SECRET is required");
   process.exit(1);
 }
+assertValidBranch(BRANCH, "Default BRANCH");
 
 const startedAt = new Date();
 const activeDeploys = new Set();
@@ -105,7 +109,7 @@ function healthPayload() {
   };
 }
 
-function runDeploy(repoName) {
+function runDeploy(repoName, branch, expectedSha) {
   const repoDir = path.join(BASE_DIR, repoName);
   const isSelf = repoName === "autodeploy";
 
@@ -120,17 +124,38 @@ function runDeploy(repoName) {
   }
 
   activeDeploys.add(repoName);
-  log(`[${repoName}] deploy started in ${repoDir}`);
+  log(`[${repoName}] deploy started in ${repoDir} at ${branch}@${expectedSha.slice(0, 12)}`);
 
+  const checkoutSteps = [
+    {
+      label: "clean checkout check",
+      cmd: "git",
+      args: ["-C", repoDir, "status", "--porcelain", "--untracked-files=all"],
+      requireEmptyOutput: true,
+    },
+    {
+      label: "git fetch",
+      cmd: "git",
+      args: ["-C", repoDir, "fetch", "--no-tags", "origin", branch],
+    },
+    {
+      label: "verify fetched commit",
+      cmd: "git",
+      args: ["-C", repoDir, "rev-parse", "FETCH_HEAD"],
+      expectedOutput: expectedSha,
+    },
+    {
+      label: "git checkout",
+      cmd: "git",
+      args: ["-C", repoDir, "checkout", "-B", branch, "FETCH_HEAD"],
+    },
+  ];
   const steps = isSelf
     ? [
-        ["git pull", "git", ["-C", repoDir, "pull", "--ff-only", "origin", BRANCH]],
-        ["service restart", "systemctl", ["restart", "auto-deploy"]],
+        ...checkoutSteps,
+        { label: "service restart", cmd: "systemctl", args: ["restart", "auto-deploy"] },
       ]
-    : [
-        ["git pull", "git", ["-C", repoDir, "pull", "--ff-only", "origin", BRANCH]],
-        ["deploy", "__deploy__", []],
-      ];
+    : [...checkoutSteps, { label: "deploy", cmd: "__deploy__", args: [] }];
 
   const runStep = (i) => {
     if (i >= steps.length) {
@@ -138,7 +163,8 @@ function runDeploy(repoName) {
       log(`[${repoName}] deploy finished ok`);
       return;
     }
-    let [label, cmd, args] = steps[i];
+    const step = steps[i];
+    let { label, cmd, args } = step;
     if (cmd === "__deploy__") {
       const deployScript = path.join(repoDir, DEPLOY_SCRIPT);
       const composeFile = path.join(repoDir, COMPOSE_FILE);
@@ -153,12 +179,12 @@ function runDeploy(repoName) {
         steps.splice(
           i,
           1,
-          ["docker compose build", "docker", ["compose", "build", "--pull"]],
-          [
-            "docker compose up",
-            "docker",
-            ["compose", "up", "-d", "--force-recreate", "--remove-orphans"],
-          ],
+          { label: "docker compose build", cmd: "docker", args: ["compose", "build", "--pull"] },
+          {
+            label: "docker compose up",
+            cmd: "docker",
+            args: ["compose", "up", "-d", "--force-recreate", "--remove-orphans"],
+          },
         );
         runStep(i);
         return;
@@ -174,17 +200,29 @@ function runDeploy(repoName) {
     const child = spawn(cmd, args, {
       cwd: repoDir,
       stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        DEPLOY_BRANCH: branch,
+        DEPLOY_SHA: expectedSha,
+      },
     });
-    child.stdout.on("data", (b) =>
-      log(`[${repoName}] ${b.toString().trimEnd()}`),
-    );
+    let stdout = "";
+    child.stdout.on("data", (b) => {
+      stdout += b.toString();
+      log(`[${repoName}] ${b.toString().trimEnd()}`);
+    });
     child.stderr.on("data", (b) =>
       log(`[${repoName}] ${b.toString().trimEnd()}`),
     );
     child.on("close", (code) => {
-      if (code !== 0) {
+      const normalizedOutput = stdout.trim();
+      const outputInvalid =
+        (step.requireEmptyOutput && normalizedOutput !== "") ||
+        (step.expectedOutput && normalizedOutput !== step.expectedOutput);
+      if (code !== 0 || outputInvalid) {
         activeDeploys.delete(repoName);
-        log(`[${repoName}] ${label} failed with code ${code}, aborting deploy`);
+        const reason = outputInvalid ? "returned unexpected output" : `failed with code ${code}`;
+        log(`[${repoName}] ${label} ${reason}, aborting deploy`);
         return;
       }
       log(`[${repoName}] ${label} finished ok`);
@@ -252,16 +290,24 @@ const server = http.createServer((req, res) => {
     }
 
     const repoName = payload.repository?.name;
-    if (!repoName) {
+    if (!repoName || !/^[A-Za-z0-9._-]+$/.test(repoName)) {
       res.writeHead(400);
-      res.end("missing repository name");
+      res.end("missing or invalid repository name");
       return;
     }
 
-    if (payload.ref !== `refs/heads/${BRANCH}`) {
-      log(`[${repoName}] ignoring push to ${payload.ref}`);
+    const branch = REPOSITORY_BRANCHES.get(repoName) || BRANCH;
+    if (payload.ref !== `refs/heads/${branch}`) {
+      log(`[${repoName}] ignoring push to ${payload.ref}; deploy branch is ${branch}`);
       res.writeHead(204);
       res.end();
+      return;
+    }
+
+    const expectedSha = payload.after;
+    if (!/^[0-9a-f]{40}$/.test(expectedSha || "")) {
+      res.writeHead(400);
+      res.end("missing or invalid commit SHA");
       return;
     }
 
@@ -270,12 +316,12 @@ const server = http.createServer((req, res) => {
     );
     res.writeHead(202, { "content-type": "text/plain" });
     res.end("accepted");
-    runDeploy(repoName);
+    runDeploy(repoName, branch, expectedSha);
   });
 });
 
 server.listen(PORT, () => {
   log(
-    `multi-repo deploy listener on :${PORT} (baseDir=${BASE_DIR} branch=${BRANCH})`,
+    `multi-repo deploy listener on :${PORT} (baseDir=${BASE_DIR} defaultBranch=${BRANCH} repositoryBranches=${JSON.stringify(Object.fromEntries(REPOSITORY_BRANCHES))})`,
   );
 });

@@ -2,10 +2,9 @@
 
 A generic GitHub webhook listener that auto-deploys repositories via a repo-provided deploy script or Docker Compose.
 
-A small Node webhook server runs on the Docker host and listens for GitHub `push` events on `main`. On a valid event it runs:
+A small Node webhook server runs on the Docker host and listens for GitHub `push` events on each repository's configured deployment branch. On a valid event it fetches and checks out the exact commit from the signed webhook payload, then runs:
 
 ```bash
-git -C /base-dir/<repo-name> pull --ff-only origin main
 bash /base-dir/<repo-name>/scripts/deploy.sh   # when present
 ```
 
@@ -71,6 +70,8 @@ BASE_DIR=/base-dir
 APP_DIR=/base-dir/autodeploy
 NODE_BIN=/usr/bin/node
 BRANCH=main
+# Optional per-repository overrides. Quote the JSON in the shell env file.
+REPOSITORY_BRANCHES='{"porter":"production","autodeploy":"main"}'
 PORT=3091
 # Used by child git/deploy commands; set this to the service user's home directory.
 HOME=/path/to/service-user-home
@@ -87,7 +88,9 @@ SSH_HOST=127.0.0.1
 SSH_USER=base-dir
 ```
 
-For example, `repository` can define `/base-dir/repository/scripts/deploy.sh` with its own serial Docker rollout logic. After each accepted push, autodeploy fast-forwards `/base-dir/repository` from `origin/main` and runs `bash /base-dir/repository/scripts/deploy.sh` from `/base-dir/repository`.
+`BRANCH` remains the fallback for repositories absent from `REPOSITORY_BRANCHES`. For example, the configuration above keeps this service deploying itself from `main` while Porter deploys only from `production`.
+
+After each accepted push, autodeploy refuses a dirty target checkout, fetches the configured branch, verifies that the fetched commit matches the signed webhook payload, checks out that exact commit, and runs the repository's deploy script. Deploy scripts receive `DEPLOY_BRANCH` and `DEPLOY_SHA` in their environment.
 
 Lock it down:
 
